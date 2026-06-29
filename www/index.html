@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="pt">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+
+    <!-- PWA Meta Tags -->
+    <meta name="theme-color" content="#00d4aa" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="BizControl" />
+    <meta name="description" content="Sistema de Gestão de Stock & Vendas — funciona offline no Android, tablet e desktop" />
+
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="manifest.json" />
+
+    <!-- Apple Touch Icon (PWA iOS) -->
+    <link rel="apple-touch-icon" href="icon/iconiconbiz.ico" />
+
+    <!-- Styles -->
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+    />
+    <link rel="stylesheet" href="css/style.css" />
+    <link rel="icon" type="image/x-icon" href="icon/iconiconbiz.ico" />
+    <title>BizController 360</title>
+  </head>
+  <body>
+    <div class="system-footer">Elvatech copyright todos os direitos reservados 2026</div>
+
+    <!-- TELA DE ATIVAÇÃO DE LICENÇA -->
+    <div id="license-screen" class="hidden">
+      <div class="login-box">
+        <div class="logo-area">
+          <div class="logo-icon"><i class="fa-solid fa-key"></i></div>
+          <div class="logo-title">Ativação de Sistema</div>
+          <div class="logo-sub">Insira sua chave de licença para continuar</div>
+        </div>
+        <div class="form-group">
+          <label>Chave de Licença</label>
+          <input type="text" id="license-key" placeholder="XXXX-XXXX-XXXX-XXXX" autocomplete="off" />
+        </div>
+        <div class="form-group">
+          <label>Nome da Empresa</label>
+          <input type="text" id="license-company" placeholder="Ex: Minha Loja" autocomplete="organization" />
+        </div>
+        <div class="form-group">
+          <label>Telefone de Contacto</label>
+          <input type="tel" id="license-phone" placeholder="+258 ..." autocomplete="tel" />
+        </div>
+        <button type="button" class="btn-primary" id="activate-btn">Ativar Agora</button>
+        <div class="demo-hint">Este dispositivo será vinculado à sua licença.</div>
+      </div>
+    </div>
+
+    <!-- LOGIN -->
+    <div id="login-screen">
+      <div class="login-box">
+        <div class="logo-area">
+          <div class="logo-icon"><img src="icon/iconiconbiz.ico" style="width:48px;height:48px;" alt="Logo BizController" /></div>
+          <div class="logo-title">BizController 360</div>
+          <div class="logo-sub">Gestão de Stock &amp; Vendas</div>
+        </div>
+        <div class="form-group">
+          <label>Email</label>
+          <input type="email" id="login-user" placeholder="ex: admin@bizcontrol.local" autocomplete="email" inputmode="email" />
+        </div>
+        <div class="form-group">
+          <label>Senha</label>
+          <input type="password" id="login-pass" placeholder="••••••" autocomplete="current-password" />
+        </div>
+        <button type="button" class="btn-primary" id="login-submit-btn">Entrar no Sistema</button>
+
+        <!-- URL do servidor (só visível em modo web/mobile) -->
+        <div id="server-url-config" style="margin-top:16px; display:none;">
+          <label style="font-size:11px;color:var(--text3);display:block;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">
+            URL do Servidor
+          </label>
+          <div style="display:flex;gap:8px;">
+            <input type="url" id="server-url-input"
+              placeholder="https://meu-bizcontrol.railway.app"
+              style="flex:1;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;
+                     padding:10px 12px;color:var(--text);font-size:13px;outline:none;"
+              autocomplete="url" />
+            <button type="button" id="server-url-save"
+              style="background:var(--accent);color:#000;border:none;border-radius:8px;
+                     padding:10px 14px;cursor:pointer;font-size:13px;font-weight:600;">
+              Guardar
+            </button>
+          </div>
+          <div style="font-size:11px;color:var(--text3);margin-top:6px;">
+            Introduz a URL do servidor BizController
+          </div>
+        </div>
+
+        <div class="demo-hint" id="login-hint">A carregar...</div>
+      </div>
+    </div>
+
+    <!-- APP SHELL -->
+    <div id="app-shell" class="hidden">
+      <div class="topbar">
+        <div class="topbar-left">
+          <!-- Botão Hamburger (visível em mobile, gerido por mobile-ui.js) -->
+          <button id="hamburger-btn" aria-label="Abrir menu" aria-expanded="false" style="display:none;">
+            <span class="ham-line"></span>
+            <span class="ham-line"></span>
+            <span class="ham-line"></span>
+          </button>
+          <span class="topbar-logo"
+            ><i class="fa-solid fa-chart-simple" style="margin-right: 8px"></i>
+            BizController 360</span
+          >
+          <span class="topbar-company" id="topbar-company">Empresa Demo</span>
+        </div>
+        <div class="topbar-user">
+          <div style="text-align: right">
+            <div class="user-name" id="topbar-username">—</div>
+            <div class="user-role" id="topbar-userrole">—</div>
+          </div>
+          <div class="user-avatar" id="topbar-avatar">?</div>
+          <button type="button" class="btn-logout" id="logout-btn">Sair</button>
+        </div>
+      </div>
+      <div class="main-layout">
+        <div class="sidebar" id="sidebar"></div>
+        <div class="content" id="content-area"></div>
+      </div>
+    </div>
+
+    <!-- MODAL -->
+    <div class="modal-overlay hidden" id="modal-overlay">
+      <div class="modal" id="modal-body"></div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+    <script type="module" src="js/main.js"></script>
+
+    <!-- Service Worker Registration -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js')
+            .then(reg => {
+              console.log('[PWA] Service Worker registado:', reg.scope);
+
+              // Verificar por atualizações
+              reg.addEventListener('updatefound', () => {
+                const newWorker = reg.installing;
+                newWorker.addEventListener('statechange', () => {
+                  if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                    console.log('[PWA] Nova versão disponível.');
+                    // Notificar utilizador de atualização (opcional)
+                  }
+                });
+              });
+            })
+            .catch(err => console.warn('[PWA] Erro ao registar Service Worker:', err));
+        });
+      }
+
+      // Mostrar/esconder configuração do servidor (apenas em browser, não Electron)
+      window.addEventListener('DOMContentLoaded', () => {
+        const isElectron = !!(window.electronAPI);
+        const isLocalhost = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+        const hint = document.getElementById('login-hint');
+
+        if (!isElectron) {
+          // Mostrar campo URL do servidor em modo web
+          const serverConfig = document.getElementById('server-url-config');
+          if (serverConfig) {
+            serverConfig.style.display = 'block';
+            const input = document.getElementById('server-url-input');
+            if (input) {
+              input.value = localStorage.getItem('biz_server_url') || '';
+            }
+            const saveBtn = document.getElementById('server-url-save');
+            if (saveBtn) {
+              saveBtn.addEventListener('click', () => {
+                const url = input.value.trim().replace(/\/$/, '');
+                if (url) {
+                  localStorage.setItem('biz_server_url', url);
+                  saveBtn.textContent = '✓ Guardado';
+                  setTimeout(() => { saveBtn.textContent = 'Guardar'; }, 2000);
+                }
+              });
+            }
+          }
+          if (hint) {
+            hint.textContent = navigator.onLine
+              ? 'Modo Web/Mobile — ' + (isLocalhost ? 'Servidor local' : 'Online')
+              : '📴 Modo Offline — dados locais';
+          }
+        } else {
+          if (hint) hint.textContent = 'Abra via Electron para autenticar com base de dados.';
+        }
+
+        // Atualizar hint quando muda conectividade
+        window.addEventListener('online', () => {
+          if (hint && !isElectron) hint.textContent = 'Online — sincronizado com o servidor';
+        });
+        window.addEventListener('offline', () => {
+          if (hint && !isElectron) hint.textContent = '📴 Offline — a usar dados locais';
+        });
+      });
+    </script>
+  </body>
+</html>

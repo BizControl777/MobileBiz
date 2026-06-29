@@ -1,0 +1,48 @@
+{
+  "name": "BizController 360",
+  "short_name": "BizControl",
+  "description": "Sistema de Gestão de Stock & Vendas — funciona offline",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0e17",
+  "theme_color": "#00d4aa",
+  "orientation": "any",
+  "categories": ["business", "finance", "productivity"],
+  "lang": "pt",
+  "icons": [
+    {
+      "src": "icon/iconiconbiz.ico",
+      "sizes": "any",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "icon/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "Vender",
+      "short_name": "PDV",
+      "description": "Abrir ponto de venda",
+      "url": "/?page=vender",
+      "icons": [{ "src": "icon/iconiconbiz.ico", "sizes": "any" }]
+    },
+    {
+      "name": "Stock",
+      "short_name": "Stock",
+      "description": "Ver stock de produtos",
+      "url": "/?page=stock",
+      "icons": [{ "src": "icon/iconiconbiz.ico", "sizes": "any" }]
+    }
+  ]
+}

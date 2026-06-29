@@ -1,0 +1,6 @@
+{
+  "appId": "com.bizcontrol360",
+  "appName": "bizcontrol360",
+  "webDir": "www",
+  "bundledWebRuntime": false
+}
