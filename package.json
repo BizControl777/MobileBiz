@@ -10,7 +10,7 @@
     "server": "node --watch electron/server.js",
     "build": "electron-builder",
     "electron": "electron . --no-sandbox --disable-setuid-sandbox",
-    "postinstall": "electron-builder install-app-deps",
+    "postinstall": "node scripts/postinstall.cjs",
     "build:web": "node scripts/copy-www.js",
     "cap:init": "npx cap init bizcontrol360 com.bizcontrol360 --web-dir=www",
     "cap:add:android": "npx cap add android",
