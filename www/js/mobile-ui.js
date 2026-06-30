@@ -23,7 +23,13 @@ export function initMobileUI() {
 }
 
 function createHamburgerBtn() {
-  if (document.getElementById("hamburger-btn")) return;
+  const existingBtn = document.getElementById("hamburger-btn");
+  if (existingBtn) {
+    existingBtn.onclick = toggleSidebar;
+    existingBtn.setAttribute("aria-label", "Abrir menu");
+    existingBtn.setAttribute("aria-expanded", "false");
+    return;
+  }
 
   const btn = document.createElement("button");
   btn.id = "hamburger-btn";
