@@ -122,10 +122,6 @@ body.sidebar-locked {
   width: 100%;
 }
 
-#hamburger-btn {
-  display: none;
-}
-
 body {
   font-family: "DM Sans", sans-serif;
   background: var(--bg);
@@ -1983,6 +1979,23 @@ tr:hover td {
 
   #hamburger-btn {
     display: flex !important;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 5px;
+    width: 40px;
+    height: 40px;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    cursor: pointer;
+    padding: 8px;
+    flex-shrink: 0;
+    transition: background 0.2s;
+  }
+  #hamburger-btn:hover {
+    background: var(--bg4);
+    border-color: var(--accent);
   }
 
   /* Layout principal */

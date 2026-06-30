@@ -59,10 +59,12 @@ function createSidebarOverlay() {
 }
 
 export function toggleSidebar() {
+  console.log("[MobileUI] toggleSidebar chamado, _sidebarOpen =", _sidebarOpen);
   _sidebarOpen ? closeSidebar() : openSidebar();
 }
 
 export function openSidebar() {
+  console.log("[MobileUI] openSidebar chamado");
   const sidebar = document.getElementById("sidebar");
   const overlay = document.getElementById("sidebar-overlay");
   const btn = document.getElementById("hamburger-btn");
@@ -75,9 +77,11 @@ export function openSidebar() {
   }
   document.body.classList.add("sidebar-locked");
   _sidebarOpen = true;
+  console.log("[MobileUI] Sidebar aberta, classes aplicadas");
 }
 
 export function closeSidebar() {
+  console.log("[MobileUI] closeSidebar chamado");
   const sidebar = document.getElementById("sidebar");
   const overlay = document.getElementById("sidebar-overlay");
   const btn = document.getElementById("hamburger-btn");
@@ -90,6 +94,7 @@ export function closeSidebar() {
   }
   document.body.classList.remove("sidebar-locked");
   _sidebarOpen = false;
+  console.log("[MobileUI] Sidebar fechada, classes removidas");
 }
 
 // Fechar sidebar ao navegar (mobile)
@@ -247,116 +252,48 @@ function injectMobileCSS() {
   const style = document.createElement("style");
   style.id = "mobile-ui-style";
   style.textContent = `
-    /* Hamburger button */
-    #hamburger-btn {
+    /* Overlay para escurecer fundo quando sidebar está aberta */
+    #sidebar-overlay {
       display: none;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
-      gap: 5px;
-      width: 40px;
-      height: 40px;
-      background: var(--bg3);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      cursor: pointer;
-      padding: 8px;
-      flex-shrink: 0;
-      transition: background 0.2s;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.55);
+      z-index: 195;
+      backdrop-filter: blur(3px);
+      -webkit-backdrop-filter: blur(3px);
+      pointer-events: none;
     }
-    #hamburger-btn:hover {
-      background: var(--bg4);
-      border-color: var(--accent);
+    #sidebar-overlay.active {
+      display: block;
+      pointer-events: auto;
     }
+
+    /* Impedir scroll quando sidebar está aberta */
+    body.sidebar-locked {
+      overflow: hidden;
+      position: fixed;
+      width: 100%;
+    }
+
+    /* Hamburger button — estilos animados */
     .ham-line {
       display: block;
       width: 18px;
       height: 2px;
       background: var(--text);
       border-radius: 2px;
-      transition: all 0.3s cubic-bezier(0.4,0,0.2,1);
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
       transform-origin: center;
     }
     #hamburger-btn.active .ham-line:nth-child(1) {
       transform: translateY(7px) rotate(45deg);
     }
     #hamburger-btn.active .ham-line:nth-child(2) {
-      opacity: 0; transform: scaleX(0);
+      opacity: 0;
+      transform: scaleX(0);
     }
     #hamburger-btn.active .ham-line:nth-child(3) {
       transform: translateY(-7px) rotate(-45deg);
-    }
-
-    /* Sidebar overlay */
-    #sidebar-overlay {
-      display: none;
-      position: fixed;
-      inset: 0;
-      background: rgba(0,0,0,0.6);
-      z-index: 199;
-      backdrop-filter: blur(2px);
-      -webkit-backdrop-filter: blur(2px);
-    }
-    #sidebar-overlay.active {
-      display: block;
-    }
-
-    /* Spin animation para ícone de sync */
-    @keyframes spin {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(360deg); }
-    }
-
-    /* Pull-to-refresh indicator */
-    #ptr-indicator {
-      position: fixed;
-      top: 58px;
-      left: 50%;
-      transform: translateX(-50%) translateY(-60px);
-      background: var(--accent);
-      color: #0a0e17;
-      padding: 8px 20px;
-      border-radius: 0 0 20px 20px;
-      font-size: 12px;
-      font-weight: 700;
-      z-index: 9998;
-      transition: transform 0.3s;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    #ptr-indicator.visible {
-      transform: translateX(-50%) translateY(0);
-    }
-
-    /* Mobile breakpoint */
-    @media (max-width: 768px) {
-      #hamburger-btn {
-        display: flex !important;
-      }
-      
-      .sidebar {
-        position: fixed !important;
-        left: 0;
-        top: 58px;
-        height: calc(100vh - 58px);
-        width: 260px !important;
-        z-index: 200;
-        transform: translateX(-100%);
-        transition: transform 0.3s cubic-bezier(0.4,0,0.2,1);
-        box-shadow: 4px 0 24px rgba(0,0,0,0.4);
-        padding: 16px 12px !important;
-        overflow-y: auto;
-      }
-      .sidebar.sidebar-open {
-        transform: translateX(0);
-      }
-      .nav-item span {
-        display: inline !important;
-      }
-      .nav-section {
-        display: block !important;
-      }
     }
   `;
   document.head.appendChild(style);
