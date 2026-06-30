@@ -41,32 +41,22 @@ import {
 // =============================================
 
 // URL do servidor remoto — configurar antes do deploy
-// Em desenvolvimento local no browser: usa localhost:3000
-// Em produção mobile Capacitor: usar a URL pública do servidor Node.js / Electron
-// Este servidor é o backend da aplicação, que faz a validação no Supabase.
-// NÃO use aqui a URL do Supabase diretamente.
-// Exemplos:
-// - `https://meu-bizcontrol-backend.railway.app`
-// - `http://192.168.1.100:3000` (dispositivo na mesma rede local)
-// - `http://10.0.2.2:3000` (emulador Android)
-const DEFAULT_REMOTE_SERVER_URL = "https://SEU_BACKEND_NODE_API_AQUI";
-
+// Em desenvolvimento local: usa localhost:3000
+// Em produção (Railway/Render): usa a URL pública
 function getServerURL() {
+  // Verificar se há URL configurada manualmente (ex: no localStorage por settings)
   const saved = localStorage.getItem("biz_server_url");
   if (saved && saved.trim()) return saved.trim().replace(/\/$/, "");
 
-  const isCapacitorApp = typeof window.Capacitor !== "undefined" || location.protocol === "capacitor:" || location.protocol === "ionic:";
-  const isBrowserLocalhost = location.hostname === "localhost" || location.hostname === "127.0.0.1";
-
-  if (!isCapacitorApp && isBrowserLocalhost) {
+  // Em desenvolvimento, usar localhost
+  if (
+    location.hostname === "localhost" ||
+    location.hostname === "127.0.0.1"
+  ) {
     return "http://localhost:3000";
   }
 
-  if (isCapacitorApp) {
-    console.warn("[WebBridge] Capacitor app detectada. Usando URL remota padrão para backend.");
-    return DEFAULT_REMOTE_SERVER_URL;
-  }
-
+  // Em produção (PWA hospedada), o servidor está na mesma origem
   return window.location.origin;
 }
 
