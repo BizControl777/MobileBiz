@@ -93,6 +93,55 @@ Se o tablet/telemóvel estiver na mesma rede que o PC:
 
 ---
 
+## Capacitor — Preparar Build Android (Android Studio)
+
+Siga estes passos para gerar o projeto Android e abrir no Android Studio:
+
+1. Atualize a URL do servidor remoto usada pela app (substitua no arquivo `www/js/web-api-bridge.js`):
+
+    - Localize `DEFAULT_REMOTE_SERVER_URL` no início do arquivo e defina sua URL pública, por exemplo `https://seu-backend.railway.app`.
+    - Alternativamente, no dispositivo você pode definir dinamicamente a URL abrindo o console do app e executando:
+
+```bash
+localStorage.setItem('biz_server_url', 'https://seu-backend.railway.app')
+```
+    - Isso é importante para o APK instalado, pois o app Capacitor não usa `localhost:3000` por padrão.
+
+2. Gerar os assets web e copiar para o projeto Capacitor:
+
+```bash
+npm run build:web
+npm run build:mobile
+# ou para abrir direto no Android Studio
+npm run build:android-studio
+```
+
+3. Abra o projeto Android no Android Studio (se não usou `build:android-studio`):
+
+```bash
+npx cap open android
+```
+
+4. No Android Studio:
+    - Aguarde a sincronização Gradle.
+    - Conecte um dispositivo ou use um emulador (recomendado: API 30+).
+    - Execute `Run` → selecione o dispositivo.
+
+5. Notas de rede durante desenvolvimento:
+    - Para apontar o app para um servidor local durante emulador Android, use `http://10.0.2.2:3000` como `biz_server_url`.
+    - Em dispositivos físicos na mesma rede, use `http://<IP_DO_PC>:3000`.
+
+6. CORS e variáveis do backend:
+    - No servidor (variáveis `.env` ou host): defina `ALLOW_ALL_ORIGINS=true` em desenvolvimento ou adicione `ALLOWED_ORIGINS` com a URL da PWA/Capacitor.
+    - Assegure que `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` estejam configuradas no `.env` do servidor remoto.
+
+7. Testes recomendados após build:
+    - Abrir app no dispositivo e tentar login com credenciais demo (ex.: `admin@bizcontrol.local` / `demo123`) — se for ambiente remoto, use um usuário existente no Supabase.
+    - Verificar logs do backend para ver conexões e CORS.
+    - Testar fluxo online/offline e sincronização de dados.
+
+---
+
 ## Variáveis de Ambiente para Produção
 
 ```env

@@ -546,6 +546,21 @@ function insertDemoData() {
         insertCat.run(cat, empresaId);
       });
 
+      // Inserir licença demo local para permitir o fluxo de teste do app mobile
+      const now = new Date();
+      const nextValidation = new Date(now.getTime() + 10 * 24 * 60 * 60 * 1000);
+      db.prepare(
+        "INSERT INTO local_license (license_key, device_id, company_name, status, expires_at, last_validation_at, next_validation_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      ).run(
+        "DEMO-0000-0000-0000",
+        "demo-device",
+        "BizControl Demo",
+        "active",
+        new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+        now.toISOString(),
+        nextValidation.toISOString()
+      );
+
       console.log("✓ Dados de demonstração inseridos");
     }
   } catch (err) {
