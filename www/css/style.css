@@ -2030,9 +2030,52 @@ tr:hover td {
   .sidebar.sidebar-open {
     transform: translateX(0);
   }
+  
+  /* Menu items — melhor contraste em mobile */
+  .nav-section {
+    display: block !important;
+    font-size: 11px;
+    letter-spacing: 1.5px;
+    color: var(--text3);
+    padding: 12px 12px 8px;
+    text-transform: uppercase;
+  }
+  
+  .nav-item {
+    display: flex !important;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 12px;
+    border-radius: var(--sm-r);
+    cursor: pointer;
+    transition: all 0.2s;
+    color: var(--text) !important;
+    font-size: 14px;
+    font-weight: 500;
+  }
+  
+  .nav-item span { display: inline !important; }
+  
+  .nav-item:hover {
+    background: var(--bg3);
+    color: var(--accent) !important;
+  }
+  
+  .nav-item.active {
+    background: rgba(0, 212, 170, 0.15);
+    color: var(--accent) !important;
+    font-weight: 600;
+  }
+  
+  .nav-icon {
+    font-size: 18px;
+    width: 24px;
+    text-align: center;
+    flex-shrink: 0;
+  }
+
   /* Garantir que texto da sidebar aparece */
   .nav-item span { display: inline !important; }
-  .nav-section { display: block !important; }
 
   .content {
     padding: 14px;
