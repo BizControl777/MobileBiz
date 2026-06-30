@@ -57,9 +57,11 @@ https://bizcontrol-production-xxxx.railway.app
 ### 2. New → Web Service → Connect GitHub
 ### 3. Configurar:
 - **Build Command**: `npm install`
-- **Start Command**: `node electron/server.js`
+- **Start Command**: `npm run serve`
 - **Environment**: Node
 ### 4. Adicionar variáveis de ambiente (mesmas que acima)
+- `SKIP_ELECTRON_POSTINSTALL=true`
+- `RENDER=true`
 
 ---
 

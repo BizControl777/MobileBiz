@@ -7,6 +7,7 @@
   "scripts": {
     "start": "electron . --no-sandbox --disable-setuid-sandbox",
     "dev": "node electron/server.js",
+    "serve": "node electron/server.js",
     "server": "node --watch electron/server.js",
     "build": "electron-builder",
     "electron": "electron . --no-sandbox --disable-setuid-sandbox",
