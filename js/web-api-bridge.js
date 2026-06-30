@@ -41,22 +41,31 @@ import {
 // =============================================
 
 // URL do servidor remoto — configurar antes do deploy
-// Em desenvolvimento local: usa localhost:3000
-// Em produção (Railway/Render): usa a URL pública
+// Em desenvolvimento (browser): usa localhost:3000
+// Em produção mobile Capacitor: usar a URL pública do backend Node/Electron
+// Este servidor consulta o Supabase e sincroniza dados locais.
+const DEFAULT_REMOTE_SERVER_URL = "https://bizcontrol360.onrender.com";
+
 function getServerURL() {
   // Verificar se há URL configurada manualmente (ex: no localStorage por settings)
   const saved = localStorage.getItem("biz_server_url");
   if (saved && saved.trim()) return saved.trim().replace(/\/$/, "");
 
-  // Em desenvolvimento, usar localhost
-  if (
-    location.hostname === "localhost" ||
-    location.hostname === "127.0.0.1"
-  ) {
+  const isCapacitorApp = typeof window.Capacitor !== "undefined" || location.protocol === "capacitor:" || location.protocol === "ionic:";
+  const isBrowserLocalhost = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+
+  // Em browser local (desenvolvimento), usar localhost:3000
+  if (!isCapacitorApp && isBrowserLocalhost) {
     return "http://localhost:3000";
   }
 
-  // Em produção (PWA hospedada), o servidor está na mesma origem
+  // Em app Capacitor instalado, usar o backend remoto por defeito
+  if (isCapacitorApp) {
+    console.warn("[WebBridge] Capacitor app detectada. Usando URL remota padrão para backend.");
+    return DEFAULT_REMOTE_SERVER_URL;
+  }
+
+  // PWA hospedada: servidor na mesma origem
   return window.location.origin;
 }
 

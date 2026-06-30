@@ -939,13 +939,24 @@ app.post("/api/auth/login", async (req, res) => {
           }
           
           try {
-            db.prepare(`
-              INSERT INTO usuarios (nome, email, senha, role, empresa_id, ativo, permissoes)
-              VALUES (?, ?, ?, ?, ?, ?, ?)
-              ON CONFLICT(email) DO UPDATE SET
-              nome=excluded.nome, senha=excluded.senha, role=excluded.role, 
-              empresa_id=excluded.empresa_id, ativo=excluded.ativo, permissoes=excluded.permissoes`
-            ).run(license.owner_name || license.company_name, license.login_email, currentHash, "gestor", empresaId, 1, perms);
+            const existingUser = db.prepare("SELECT id FROM usuarios WHERE email = ?").get(license.login_email);
+            if (existingUser) {
+              db.prepare(`
+                UPDATE usuarios SET
+                  nome = ?,
+                  senha = ?,
+                  role = ?,
+                  empresa_id = ?,
+                  ativo = ?,
+                  permissoes = ?
+                WHERE email = ?`
+              ).run(license.owner_name || license.company_name, currentHash, "gestor", empresaId, 1, perms, license.login_email);
+            } else {
+              db.prepare(`
+                INSERT INTO usuarios (nome, email, senha, role, empresa_id, ativo, permissoes)
+                VALUES (?, ?, ?, ?, ?, ?, ?)`
+              ).run(license.owner_name || license.company_name, license.login_email, currentHash, "gestor", empresaId, 1, perms);
+            }
             console.log("[SYNC] Dados locais atualizados com sucesso");
           } catch (syncErr) {
             console.error("[SYNC] Erro ao atualizar cache local:", syncErr.message);
