@@ -304,10 +304,14 @@ export function createWebApi() {
 
       // Guardar utilizadores offline
       const usuarios = await getUsuariosOffline();
-      const exists = usuarios.find((u) => u.id === data.user.id);
-      if (!exists) {
-        await saveUsuarios([...usuarios, data.user]);
-      }
+      const normalizedUser = { ...data.user, id: data.user.id ?? data.user.email };
+      const mergedUsuarios = usuarios.filter(
+        (u) =>
+          u.id !== normalizedUser.id &&
+          String(u.email || "").toLowerCase() !== String(normalizedUser.email || "").toLowerCase()
+      );
+      mergedUsuarios.push(normalizedUser);
+      await saveUsuarios(mergedUsuarios);
 
       return data.user;
     },

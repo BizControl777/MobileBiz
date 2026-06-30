@@ -302,7 +302,18 @@ export async function getReservasOffline() {
 
 export async function saveUsuarios(usuarios) {
   await txClear("usuarios");
+  const deduped = [];
+  const seenIds = new Set();
+  const seenEmails = new Set();
   for (const u of usuarios) {
+    if (!u || u.id == null) continue;
+    const emailKey = String(u.email || "").toLowerCase();
+    if (seenIds.has(u.id) || (emailKey && seenEmails.has(emailKey))) continue;
+    seenIds.add(u.id);
+    if (emailKey) seenEmails.add(emailKey);
+    deduped.push(u);
+  }
+  for (const u of deduped) {
     await txPut("usuarios", u);
   }
 }
