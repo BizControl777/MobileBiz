@@ -78,6 +78,20 @@ let _initialized = false;
 let _serverURL = "";
 let _syncInProgress = false;
 let _initPromise = null;
+let _sessionId = 0;
+let _abortController = new AbortController();
+
+/** Invalida pedidos em curso (chamar ao sair ou antes de novo login). */
+export function invalidateApiSession() {
+  _sessionId += 1;
+  _syncInProgress = false;
+  try {
+    _abortController.abort();
+  } catch (_) {
+    /* ignore */
+  }
+  _abortController = new AbortController();
+}
 
 // =============================================
 // INICIALIZAÇÃO
@@ -185,25 +199,34 @@ function showSyncBanner(state = "sync") {
 
 async function triggerSync() {
   if (_syncInProgress || !navigator.onLine) return;
+
+  const token = localStorage.getItem("auth_token");
+  if (!token || String(token).startsWith("offline_") || !localStorage.getItem("biz_user")) {
+    return;
+  }
+
+  const syncSession = _sessionId;
   _syncInProgress = true;
 
   try {
-    const token = localStorage.getItem("auth_token");
-
     // 1. Processar fila de operações pendentes
     const { synced, errors } = await processSyncQueue(_serverURL, token);
+    if (syncSession !== _sessionId) return;
     if (synced > 0) {
       console.log(`[WebBridge] ${synced} operações sincronizadas.`);
     }
 
     // 2. Atualizar dados locais com dados do servidor
     await fullSync(_serverURL, token);
+    if (syncSession !== _sessionId) return;
 
     showSyncBanner("done");
   } catch (err) {
     console.error("[WebBridge] Erro durante sync:", err);
   } finally {
-    _syncInProgress = false;
+    if (syncSession === _sessionId) {
+      _syncInProgress = false;
+    }
   }
 }
 
@@ -231,16 +254,32 @@ function isOfflineError(err) {
   );
 }
 
+function isPublicEndpoint(endpoint) {
+  return (
+    /^\/auth\//.test(endpoint) ||
+    endpoint === "/activate" ||
+    endpoint === "/validate" ||
+    endpoint === "/license/status"
+  );
+}
+
+function isStaleRequestError(err) {
+  return err?.name === "AbortError" || String(err?.message || "") === "STALE_REQUEST_IGNORED";
+}
+
 async function request(method, endpoint, data = null) {
   if (!navigator.onLine) {
     throw new Error("OFFLINE");
   }
 
-  const token = localStorage.getItem("auth_token");
+  const requestSession = _sessionId;
+  const isPublic = isPublicEndpoint(endpoint);
+  const token = isPublic ? null : localStorage.getItem("auth_token");
   const url = `${_serverURL}/api${endpoint}`;
 
   const fetchOptions = {
     method,
+    signal: _abortController.signal,
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -252,21 +291,42 @@ async function request(method, endpoint, data = null) {
   try {
     response = await fetch(url, fetchOptions);
   } catch (err) {
+    if (isStaleRequestError(err)) {
+      throw new Error("STALE_REQUEST_IGNORED");
+    }
     if (isOfflineError(err)) {
       throw new Error("OFFLINE");
     }
     throw err;
   }
 
+  if (requestSession !== _sessionId) {
+    throw new Error("STALE_REQUEST_IGNORED");
+  }
+
   if (!response.ok) {
-    if (response.status === 401) {
-      localStorage.removeItem("auth_token");
-      localStorage.removeItem("biz_user");
-      if (typeof window.logout === "function") window.logout();
-      throw new Error("Sessão expirada. Por favor faça login novamente.");
-    }
     const errData = await response.json().catch(() => ({}));
-    throw new Error(errData.message || `Erro ${response.status}`);
+    const serverMsg = errData.message || `Erro ${response.status}`;
+
+    if (response.status === 401) {
+      if (isPublic) {
+        throw new Error(serverMsg);
+      }
+      if (requestSession !== _sessionId) {
+        throw new Error("STALE_REQUEST_IGNORED");
+      }
+      const hasActiveSession = !!(localStorage.getItem("auth_token") && localStorage.getItem("biz_user"));
+      if (hasActiveSession) {
+        invalidateApiSession();
+        localStorage.removeItem("auth_token");
+        localStorage.removeItem("biz_user");
+        if (typeof window.logout === "function") window.logout();
+        throw new Error("Sessão expirada. Por favor faça login novamente.");
+      }
+      throw new Error(serverMsg);
+    }
+
+    throw new Error(serverMsg);
   }
 
   return response.json();
@@ -384,10 +444,12 @@ export function createWebApi() {
     async addProduto(produto) {
       try {
         const result = await request("POST", "/produtos", produto);
-        // Atualizar cache local
-        const produtos = await getProdutosOffline();
-        await saveProdutos([...produtos, result]);
-        return result;
+        const list = await this.getProdutos();
+        if (result?.id != null) {
+          const found = list.find((p) => Number(p.id) === Number(result.id));
+          if (found) return found;
+        }
+        return mapProdutoRow(result?.nome ? result : { ...produto, id: result?.id });
       } catch (err) {
         if (isOfflineError(err)) {
           await addToSyncQueue("POST", "/produtos", produto, `Adicionar produto: ${produto.nome}`);
@@ -423,10 +485,15 @@ export function createWebApi() {
 
     async deleteProduto({ id }) {
       try {
-        return await request("DELETE", `/produtos/${id}`);
+        const result = await request("DELETE", `/produtos/${id}`);
+        const produtos = await getProdutosOffline();
+        await saveProdutos(produtos.filter((p) => Number(p.id) !== Number(id)));
+        return result;
       } catch (err) {
         if (isOfflineError(err)) {
           await addToSyncQueue("DELETE", `/produtos/${id}`, {}, `Eliminar produto ID ${id}`);
+          const produtos = await getProdutosOffline();
+          await saveProdutos(produtos.filter((p) => Number(p.id) !== Number(id) && String(p.id) !== String(id)));
           return { success: true, _offline: true };
         }
         throw err;

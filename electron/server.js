@@ -629,6 +629,8 @@ function verifyToken(req, res, next) {
     req.userEmail = decoded.email;
     req.role = decoded.role;
     req.empresaId = decoded.empresaId;
+    // Resolver empresa real (token pode ter empresaId ausente/incorreto após login Supabase)
+    req.empresaId = getEmpresaIdForRequest(req);
     next();
   } catch (error) {
     return res.status(401).json({ message: "Token inválido" });
@@ -1037,14 +1039,17 @@ app.post("/api/auth/login", async (req, res) => {
             console.error("[SYNC] Erro ao sincronizar licença local no login:", licSyncErr.message);
           }
 
-          // Preparar objeto do utilizador para a resposta
+          // Preparar objeto do utilizador para a resposta (ID numérico da BD local)
+          const syncedUser = db.prepare("SELECT id, nome, email, role, empresa_id, permissoes FROM usuarios WHERE email = ?").get(license.login_email);
           user = {
-            id: email, // Usamos o email como ID temporário ou buscamos o ID inserido
-            nome: license.owner_name || license.company_name,
+            id: syncedUser?.id ?? license.login_email,
+            nome: syncedUser?.nome || license.owner_name || license.company_name,
             email: license.login_email,
-            role: "gestor",
-            empresa_id: empresaId,
-            permissoes: ["admin", "all"]
+            role: syncedUser?.role || "gestor",
+            empresa_id: syncedUser?.empresa_id || empresaId,
+            permissoes: syncedUser?.permissoes
+              ? (typeof syncedUser.permissoes === "string" ? JSON.parse(syncedUser.permissoes) : syncedUser.permissoes)
+              : ["admin", "all"],
           };
         } else {
           return res.status(401).json({ message: "Senha incorreta no Supabase" });
@@ -1133,7 +1138,17 @@ app.post("/api/categorias", verifyToken, (req, res) => {
   }
 });
 
-// ===== ROTAS DE PRODUTOS =====
+function fetchProdutoRow(id, empresaId) {
+  return db
+    .prepare(
+      `SELECT p.*, c.nome AS categoria_nome
+       FROM produtos p
+       LEFT JOIN categorias c ON p.categoria_id = c.id
+       WHERE p.id = ? AND p.empresa_id = ? AND p.ativo = 1`
+    )
+    .get(id, empresaId);
+}
+
 const PRODUTOS_SELECT = `
   SELECT p.*, c.nome AS categoria_nome
   FROM produtos p
@@ -1144,6 +1159,9 @@ const PRODUTOS_SELECT = `
 
 app.get("/api/produtos", verifyToken, (req, res) => {
   try {
+    if (!req.empresaId) {
+      return res.status(400).json({ message: "Empresa não encontrada para esta sessão." });
+    }
     const rows = db.prepare(PRODUTOS_SELECT).all(req.empresaId);
     res.json(rows);
   } catch (err) {
@@ -1168,6 +1186,9 @@ app.post("/api/produtos", verifyToken, (req, res) => {
     marca,
     descricao,
     codigo_barras,
+    lote,
+    data_fabricacao,
+    data_validade,
   } = req.body;
 
   if (!nome || !String(nome).trim()) {
@@ -1205,8 +1226,9 @@ app.post("/api/produtos", verifyToken, (req, res) => {
       const info = db.prepare(
         `INSERT INTO produtos (
           nome, tipo_produto, categoria_id, empresa_id, preco_venda, preco_custo, stock, stock_minimo,
-          unidade_medida, qtd_por_caixa, preco_compra_caixa, preco_venda_caixa, tamanho, marca, descricao, codigo_barras
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          unidade_medida, qtd_por_caixa, preco_compra_caixa, preco_venda_caixa, tamanho, marca, descricao, codigo_barras,
+          lote, data_fabricacao, data_validade
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         nome.trim(),
         tipo_produto || "Unidade",
@@ -1224,8 +1246,12 @@ app.post("/api/produtos", verifyToken, (req, res) => {
         marca || null,
         descricao || null,
         codigo_barras || null,
+        lote || null,
+        data_fabricacao || null,
+        data_validade || null,
       );
-      res.json({ id: info.lastInsertRowid, message: "Produto criado com sucesso" });
+      const row = fetchProdutoRow(info.lastInsertRowid, empresaId);
+      res.json(row || { id: info.lastInsertRowid, message: "Produto criado com sucesso" });
     } catch (err) {
       res.status(500).json({ message: "Erro ao criar produto: " + err.message });
     }

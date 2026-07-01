@@ -7,7 +7,7 @@ import * as gestorPages from "./paginas/gestor.js";
 import * as superPages from "./paginas/super.js";
 import * as caixaPages from "./paginas/caixa.js";
 import { initElectronApiBridge, loginWithElectronApi } from "./electron-bridge.js";
-import { initWebApiBridge, ensureWebApiReady } from "./web-api-bridge.js";
+import { initWebApiBridge, ensureWebApiReady, invalidateApiSession } from "./web-api-bridge.js";
 import {
   initMobileUI,
   initOfflineIndicator,
@@ -172,6 +172,7 @@ export async function doLogin() {
   // Garantir bridge offline pronta no mobile/web
   if (IS_WEB) {
     await ensureWebApiReady();
+    invalidateApiSession();
   }
 
   // Inicializar bridge correta conforme o ambiente
@@ -207,6 +208,7 @@ export async function doLogin() {
   try {
     user = await runLogin();
   } catch (error) {
+    if (String(error?.message || "") === "STALE_REQUEST_IGNORED") return;
     console.error("Falha ao autenticar:", error);
     showNotification(error?.message || "Não foi possível autenticar.", "error");
     return;
@@ -281,6 +283,9 @@ export async function doLogin() {
 }
 
 export function logout() {
+  if (IS_WEB) {
+    invalidateApiSession();
+  }
   document.getElementById("login-screen").classList.remove("hidden");
   document.getElementById("app-shell").classList.add("hidden");
   STATE.user = null;
@@ -347,7 +352,19 @@ export async function restoreSession() {
 
   } catch (e) {
     console.error("Erro ao restaurar sessão:", e);
-    logout();
+    const msg = String(e?.message || "");
+    if (msg === "STALE_REQUEST_IGNORED") return;
+    if (msg === "OFFLINE" || msg.includes("failed to fetch") || e?.name === "TypeError") {
+      try {
+        buildSidebar();
+      } catch (_) {
+        /* ignore */
+      }
+      return;
+    }
+    if (msg.includes("Sessão expirada") || msg.includes("Token inválido") || msg.includes("Não autorizado")) {
+      logout();
+    }
   }
 }
 

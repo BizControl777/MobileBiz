@@ -92,7 +92,9 @@ const syncBackendData = async () => {
     const produtos = await window.api.getProdutos();
     setProdutos(produtos);
   } catch (error) {
-    console.error("Erro ao carregar produtos do backend:", error);
+    if (String(error?.message || "") !== "STALE_REQUEST_IGNORED") {
+      console.error("Erro ao carregar produtos do backend:", error);
+    }
   }
 
   try {
