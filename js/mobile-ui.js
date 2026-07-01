@@ -23,24 +23,33 @@ export function initMobileUI() {
 }
 
 function createHamburgerBtn() {
-  if (document.getElementById("hamburger-btn")) return;
+  let btn = document.getElementById("hamburger-btn");
 
-  const btn = document.createElement("button");
-  btn.id = "hamburger-btn";
+  if (!btn) {
+    btn = document.createElement("button");
+    btn.id = "hamburger-btn";
+    btn.type = "button";
+    btn.innerHTML = `
+      <span class="ham-line"></span>
+      <span class="ham-line"></span>
+      <span class="ham-line"></span>
+    `;
+    const topbarLeft = document.querySelector(".topbar-left");
+    if (topbarLeft) {
+      topbarLeft.insertBefore(btn, topbarLeft.firstChild);
+    }
+  }
+
+  btn.type = "button";
   btn.setAttribute("aria-label", "Abrir menu");
   btn.setAttribute("aria-expanded", "false");
-  btn.innerHTML = `
-    <span class="ham-line"></span>
-    <span class="ham-line"></span>
-    <span class="ham-line"></span>
-  `;
-  btn.onclick = toggleSidebar;
-
-  // Inserir no topbar-left
-  const topbarLeft = document.querySelector(".topbar-left");
-  if (topbarLeft) {
-    topbarLeft.insertBefore(btn, topbarLeft.firstChild);
-  }
+  btn.replaceWith(btn.cloneNode(true));
+  btn = document.getElementById("hamburger-btn");
+  btn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    toggleSidebar();
+  });
 }
 
 function createSidebarOverlay() {
@@ -49,7 +58,14 @@ function createSidebarOverlay() {
   const overlay = document.createElement("div");
   overlay.id = "sidebar-overlay";
   overlay.onclick = closeSidebar;
-  document.body.appendChild(overlay);
+
+  // Dentro do layout para partilhar stacking context com a sidebar (menu nítido por cima)
+  const mainLayout = document.querySelector(".main-layout");
+  if (mainLayout) {
+    mainLayout.appendChild(overlay);
+  } else {
+    document.body.appendChild(overlay);
+  }
 }
 
 export function toggleSidebar() {
@@ -150,20 +166,17 @@ function wireWindowResize() {
 // =============================================
 
 export function initOfflineIndicator() {
+  if (document.getElementById("online-indicator")) return;
+
   const indicator = document.createElement("div");
   indicator.id = "online-indicator";
-  indicator.style.cssText = `
-    position: fixed;
-    top: 62px;
-    right: 12px;
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    z-index: 9999;
-    transition: background 0.3s;
-    box-shadow: 0 0 6px currentColor;
-  `;
-  document.body.appendChild(indicator);
+  indicator.className = "online-indicator";
+  const topbarUser = document.querySelector(".topbar-user");
+  if (topbarUser) {
+    topbarUser.insertBefore(indicator, topbarUser.firstChild);
+  } else {
+    document.body.appendChild(indicator);
+  }
 
   function update() {
     if (navigator.onLine) {
@@ -281,15 +294,13 @@ function injectMobileCSS() {
       transform: translateY(-7px) rotate(-45deg);
     }
 
-    /* Sidebar overlay */
+    /* Sidebar overlay — escurece o conteúdo, sem blur (menu fica nítido por cima) */
     #sidebar-overlay {
       display: none;
       position: fixed;
       inset: 0;
-      background: rgba(0,0,0,0.6);
-      z-index: 199;
-      backdrop-filter: blur(2px);
-      -webkit-backdrop-filter: blur(2px);
+      background: rgba(0,0,0,0.55);
+      z-index: 198;
     }
     #sidebar-overlay.active {
       display: block;
@@ -323,33 +334,10 @@ function injectMobileCSS() {
       transform: translateX(-50%) translateY(0);
     }
 
-    /* Mobile breakpoint */
+    /* Mobile breakpoint — complementos (estilos principais em style.css) */
     @media (max-width: 768px) {
       #hamburger-btn {
         display: flex !important;
-      }
-      
-      .sidebar {
-        position: fixed !important;
-        left: 0;
-        top: 58px;
-        height: calc(100vh - 58px);
-        width: 260px !important;
-        z-index: 200;
-        transform: translateX(-100%);
-        transition: transform 0.3s cubic-bezier(0.4,0,0.2,1);
-        box-shadow: 4px 0 24px rgba(0,0,0,0.4);
-        padding: 16px 12px !important;
-        overflow-y: auto;
-      }
-      .sidebar.sidebar-open {
-        transform: translateX(0);
-      }
-      .nav-item span {
-        display: inline !important;
-      }
-      .nav-section {
-        display: block !important;
       }
     }
   `;

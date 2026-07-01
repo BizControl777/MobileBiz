@@ -1,5 +1,5 @@
 import { fmt } from "../utils.js";
-import { CATEGORIAS, RESERVAS, addReserva } from "../data.js";
+import { CATEGORIAS } from "../data.js";
 import { cartTotals, findProdutoByBarcode, matchesProdutoQuery, normalizeProdutoPDV, normalizeId } from "../pdv-utils.js";
 import { getExpirationStatus } from "../produtos-calc.js";
 import {

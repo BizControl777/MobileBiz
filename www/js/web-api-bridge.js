@@ -31,6 +31,7 @@ import {
   saveMovimentos,
   saveReservas,
   saveUsuarios,
+  upsertUsuarioOffline,
   saveEmpresa,
   saveFinanceiro,
   updateProdutoOffline,
@@ -76,40 +77,51 @@ function getServerURL() {
 let _initialized = false;
 let _serverURL = "";
 let _syncInProgress = false;
+let _initPromise = null;
 
 // =============================================
 // INICIALIZAÇÃO
 // =============================================
 
-export async function initWebApiBridge() {
-  if (_initialized) return;
+export function initWebApiBridge() {
+  if (_initialized) return Promise.resolve();
+  if (_initPromise) return _initPromise;
 
-  _serverURL = getServerURL();
-  console.log("[WebBridge] URL do servidor:", _serverURL);
+  _initPromise = (async () => {
+    _serverURL = getServerURL();
+    console.log("[WebBridge] URL do servidor:", _serverURL);
 
-  // Iniciar IndexedDB
-  await initOfflineDB();
-  _initialized = true;
+    await initOfflineDB();
+    _initialized = true;
 
-  // Ouvir eventos de conectividade
-  window.addEventListener("online", onCameOnline);
-  window.addEventListener("offline", onWentOffline);
+    window.addEventListener("online", onCameOnline);
+    window.addEventListener("offline", onWentOffline);
 
-  // Ouvir mensagens do Service Worker
-  if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.addEventListener("message", (event) => {
-      if (event.data?.type === "PROCESS_SYNC_QUEUE") {
-        triggerSync();
-      }
-    });
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.addEventListener("message", (event) => {
+        if (event.data?.type === "PROCESS_SYNC_QUEUE") {
+          triggerSync();
+        }
+      });
+    }
+
+    if (navigator.onLine) {
+      setTimeout(() => triggerSync(), 2000);
+    }
+
+    console.log("[WebBridge] Inicializado. Online:", navigator.onLine);
+  })();
+
+  return _initPromise;
+}
+
+/** Garante IndexedDB + window.api prontos (usar antes de login/operações). */
+export async function ensureWebApiReady() {
+  await initWebApiBridge();
+  if (!window.api) {
+    window.api = createWebApi();
   }
-
-  // Se online, fazer sync inicial
-  if (navigator.onLine) {
-    setTimeout(() => triggerSync(), 2000); // Aguardar login
-  }
-
-  console.log("[WebBridge] Inicializado. Online:", navigator.onLine);
+  return window.api;
 }
 
 function onCameOnline() {
@@ -203,7 +215,27 @@ export function getSyncStatusInfo() {
 // REQUEST HELPER
 // =============================================
 
-async function request(method, endpoint, data = null, options = {}) {
+function isOfflineError(err) {
+  if (!err) return !navigator.onLine;
+  const msg = String(err.message || err).toLowerCase();
+  return (
+    msg === "offline" ||
+    msg.includes("failed to fetch") ||
+    msg.includes("networkerror") ||
+    msg.includes("network request failed") ||
+    msg.includes("load failed") ||
+    msg.includes("err_internet_disconnected") ||
+    msg.includes("err_connection") ||
+    err.name === "TypeError" ||
+    !navigator.onLine
+  );
+}
+
+async function request(method, endpoint, data = null) {
+  if (!navigator.onLine) {
+    throw new Error("OFFLINE");
+  }
+
   const token = localStorage.getItem("auth_token");
   const url = `${_serverURL}/api${endpoint}`;
 
@@ -216,14 +248,17 @@ async function request(method, endpoint, data = null, options = {}) {
     ...(data && method !== "GET" ? { body: JSON.stringify(data) } : {}),
   };
 
-  if (!navigator.onLine) {
-    throw new Error("OFFLINE");
+  let response;
+  try {
+    response = await fetch(url, fetchOptions);
+  } catch (err) {
+    if (isOfflineError(err)) {
+      throw new Error("OFFLINE");
+    }
+    throw err;
   }
 
-  const response = await fetch(url, fetchOptions);
-
   if (!response.ok) {
-    // Token expirado
     if (response.status === 401) {
       localStorage.removeItem("auth_token");
       localStorage.removeItem("biz_user");
@@ -235,6 +270,28 @@ async function request(method, endpoint, data = null, options = {}) {
   }
 
   return response.json();
+}
+
+async function loginOffline(email, password) {
+  const usuarios = await getUsuariosOffline();
+  const emailKey = String(email || "").toLowerCase().trim();
+  const user = usuarios.find(
+    (u) =>
+      String(u.email || "").toLowerCase().trim() === emailKey &&
+      u._offline_password_hash === password
+  );
+
+  if (!user) {
+    throw new Error(
+      "Sem internet e credenciais não encontradas localmente. Faça login online pelo menos uma vez com esta conta."
+    );
+  }
+
+  const fakeToken = `offline_${btoa(
+    JSON.stringify({ userId: user.id, role: user.role, empresaId: user.empresa_id })
+  )}`;
+  localStorage.setItem("auth_token", fakeToken);
+  return user;
 }
 
 // =============================================
@@ -280,40 +337,31 @@ export function createWebApi() {
 
     // ===== AUTH =====
     async authLogin({ email, password }) {
-      const isOnline = navigator.onLine;
+      if (!navigator.onLine) {
+        return loginOffline(email, password);
+      }
 
-      if (!isOnline) {
-        // Login offline: verificar utilizador no IndexedDB
-        const usuarios = await getUsuariosOffline();
-        const user = usuarios.find(
-          (u) => u.email === email && u._offline_password_hash === password
-        );
-        if (user) {
-          const fakeToken = `offline_${btoa(JSON.stringify({ userId: user.id, role: user.role, empresaId: user.empresa_id }))}`;
-          localStorage.setItem("auth_token", fakeToken);
-          return user;
+      try {
+        const data = await request("POST", "/auth/login", { email, senha: password, isOnline: true });
+        if (data.token) {
+          localStorage.setItem("auth_token", data.token);
         }
-        throw new Error("Sem internet e utilizador não encontrado localmente. Faça login online primeiro.");
+        if (!data.user) throw new Error("Resposta de login inválida.");
+
+        // Guardar credenciais para login offline futuro
+        await upsertUsuarioOffline({
+          ...data.user,
+          _offline_password_hash: password,
+        });
+
+        return data.user;
+      } catch (err) {
+        if (isOfflineError(err)) {
+          console.warn("[WebBridge] Rede indisponível — tentando login offline.");
+          return loginOffline(email, password);
+        }
+        throw err;
       }
-
-      const data = await request("POST", "/auth/login", { email, senha: password, isOnline });
-      if (data.token) {
-        localStorage.setItem("auth_token", data.token);
-      }
-      if (!data.user) throw new Error("Resposta de login inválida.");
-
-      // Guardar utilizadores offline
-      const usuarios = await getUsuariosOffline();
-      const normalizedUser = { ...data.user, id: data.user.id ?? data.user.email };
-      const mergedUsuarios = usuarios.filter(
-        (u) =>
-          u.id !== normalizedUser.id &&
-          String(u.email || "").toLowerCase() !== String(normalizedUser.email || "").toLowerCase()
-      );
-      mergedUsuarios.push(normalizedUser);
-      await saveUsuarios(mergedUsuarios);
-
-      return data.user;
     },
 
     // ===== PRODUTOS =====
@@ -324,7 +372,7 @@ export function createWebApi() {
         await saveProdutos(rows); // Guardar offline
         return mapped;
       } catch (err) {
-        if (err.message === "OFFLINE" || !navigator.onLine) {
+        if (isOfflineError(err)) {
           console.log("[WebBridge] Offline — usando produtos do IndexedDB");
           const rows = await getProdutosOffline();
           return rows.map(mapProdutoRow);
@@ -341,11 +389,17 @@ export function createWebApi() {
         await saveProdutos([...produtos, result]);
         return result;
       } catch (err) {
-        if (err.message === "OFFLINE" || !navigator.onLine) {
+        if (isOfflineError(err)) {
           await addToSyncQueue("POST", "/produtos", produto, `Adicionar produto: ${produto.nome}`);
           const tempProduct = { ...produto, id: `offline_${Date.now()}`, _offline: true };
           const produtos = await getProdutosOffline();
           await saveProdutos([...produtos, tempProduct]);
+          if (window.showNotificationWrapper) {
+            window.showNotificationWrapper(
+              "Produto guardado offline. Será sincronizado quando houver internet.",
+              "warning"
+            );
+          }
           return tempProduct;
         }
         throw err;
@@ -358,7 +412,7 @@ export function createWebApi() {
         await updateProdutoOffline(id, dados);
         return result;
       } catch (err) {
-        if (err.message === "OFFLINE" || !navigator.onLine) {
+        if (isOfflineError(err)) {
           await addToSyncQueue("PUT", `/produtos/${id}`, dados, `Atualizar produto ID ${id}`);
           await updateProdutoOffline(id, dados);
           return { ...dados, id };
@@ -371,7 +425,7 @@ export function createWebApi() {
       try {
         return await request("DELETE", `/produtos/${id}`);
       } catch (err) {
-        if (err.message === "OFFLINE" || !navigator.onLine) {
+        if (isOfflineError(err)) {
           await addToSyncQueue("DELETE", `/produtos/${id}`, {}, `Eliminar produto ID ${id}`);
           return { success: true, _offline: true };
         }
@@ -387,7 +441,7 @@ export function createWebApi() {
         await saveCategorias(list);
         return list;
       } catch (err) {
-        if (err.message === "OFFLINE" || !navigator.onLine) {
+        if (isOfflineError(err)) {
           return getCategoriasOffline();
         }
         throw err;
@@ -401,9 +455,12 @@ export function createWebApi() {
         await saveCategorias([...cats, result]);
         return result;
       } catch (err) {
-        if (err.message === "OFFLINE" || !navigator.onLine) {
+        if (isOfflineError(err)) {
           await addToSyncQueue("POST", "/categorias", { nome }, `Adicionar categoria: ${nome}`);
-          return { id: `offline_${Date.now()}`, nome, _offline: true };
+          const newCat = { id: `offline_${Date.now()}`, nome, _offline: true };
+          const cats = await getCategoriasOffline();
+          await saveCategorias([...cats, newCat]);
+          return newCat;
         }
         throw err;
       }
@@ -417,7 +474,7 @@ export function createWebApi() {
         await saveVendas(list);
         return list;
       } catch (err) {
-        if (err.message === "OFFLINE" || !navigator.onLine) {
+        if (isOfflineError(err)) {
           return getVendasOffline();
         }
         throw err;
@@ -429,7 +486,7 @@ export function createWebApi() {
         const result = await request("POST", "/vendas", venda);
         return result;
       } catch (err) {
-        if (err.message === "OFFLINE" || !navigator.onLine) {
+        if (isOfflineError(err)) {
           console.log("[WebBridge] Venda offline — guardando localmente");
           await addToSyncQueue("POST", "/vendas", venda, `Venda offline — Total: ${venda.total}`);
           const offlineVenda = await addVendaOffline(venda);
@@ -446,7 +503,7 @@ export function createWebApi() {
       try {
         return await request("PUT", `/vendas/${id}/pagamento`, dados);
       } catch (err) {
-        if (err.message === "OFFLINE" || !navigator.onLine) {
+        if (isOfflineError(err)) {
           await addToSyncQueue("PUT", `/vendas/${id}/pagamento`, dados, `Atualizar pagamento venda ${id}`);
           return { success: true, _offline: true };
         }
@@ -462,7 +519,7 @@ export function createWebApi() {
         await saveMovimentos(list);
         return list;
       } catch (err) {
-        if (err.message === "OFFLINE" || !navigator.onLine) {
+        if (isOfflineError(err)) {
           return getMovimentosOffline();
         }
         throw err;
@@ -473,7 +530,7 @@ export function createWebApi() {
       try {
         return await request("POST", "/movimentacoes", movimento);
       } catch (err) {
-        if (err.message === "OFFLINE" || !navigator.onLine) {
+        if (isOfflineError(err)) {
           await addToSyncQueue("POST", "/movimentacoes", movimento, `Movimento de stock offline`);
           return addMovimentoOffline(movimento);
         }
@@ -489,7 +546,7 @@ export function createWebApi() {
         await saveReservas(list);
         return list;
       } catch (err) {
-        if (err.message === "OFFLINE" || !navigator.onLine) {
+        if (isOfflineError(err)) {
           return getReservasOffline();
         }
         throw err;
@@ -500,7 +557,7 @@ export function createWebApi() {
       try {
         return await request("POST", "/reservas", dados);
       } catch (err) {
-        if (err.message === "OFFLINE" || !navigator.onLine) {
+        if (isOfflineError(err)) {
           await addToSyncQueue("POST", "/reservas", dados, `Reserva offline`);
           return { ...dados, id: `offline_${Date.now()}`, _offline: true };
         }
@@ -512,7 +569,7 @@ export function createWebApi() {
       try {
         return await request("PUT", `/reservas/${id}/status`, { status });
       } catch (err) {
-        if (err.message === "OFFLINE" || !navigator.onLine) {
+        if (isOfflineError(err)) {
           await addToSyncQueue("PUT", `/reservas/${id}/status`, { status }, `Atualizar reserva ${id}`);
           return { success: true, _offline: true };
         }
@@ -528,7 +585,7 @@ export function createWebApi() {
         await saveUsuarios(list);
         return list;
       } catch (err) {
-        if (err.message === "OFFLINE" || !navigator.onLine) {
+        if (isOfflineError(err)) {
           return getUsuariosOffline();
         }
         throw err;
@@ -539,7 +596,7 @@ export function createWebApi() {
       try {
         return await request("POST", "/usuarios", dados);
       } catch (err) {
-        if (err.message === "OFFLINE" || !navigator.onLine) {
+        if (isOfflineError(err)) {
           await addToSyncQueue("POST", "/usuarios", dados, `Adicionar utilizador`);
           return { ...dados, id: `offline_${Date.now()}`, _offline: true };
         }
@@ -551,7 +608,7 @@ export function createWebApi() {
       try {
         return await request("PUT", `/usuarios/${id}`, dados);
       } catch (err) {
-        if (err.message === "OFFLINE" || !navigator.onLine) {
+        if (isOfflineError(err)) {
           await addToSyncQueue("PUT", `/usuarios/${id}`, dados, `Atualizar utilizador ${id}`);
           return { ...dados, id };
         }
@@ -563,7 +620,7 @@ export function createWebApi() {
       try {
         return await request("DELETE", `/usuarios/${id}`);
       } catch (err) {
-        if (err.message === "OFFLINE" || !navigator.onLine) {
+        if (isOfflineError(err)) {
           await addToSyncQueue("DELETE", `/usuarios/${id}`, {}, `Eliminar utilizador ${id}`);
           return { success: true, _offline: true };
         }
@@ -582,7 +639,7 @@ export function createWebApi() {
         await saveEmpresa(data);
         return data;
       } catch (err) {
-        if (err.message === "OFFLINE" || !navigator.onLine) {
+        if (isOfflineError(err)) {
           return getEmpresaOffline();
         }
         throw err;
@@ -595,7 +652,7 @@ export function createWebApi() {
         await saveEmpresa({ ...dados, id: dados.id || 1 });
         return result;
       } catch (err) {
-        if (err.message === "OFFLINE" || !navigator.onLine) {
+        if (isOfflineError(err)) {
           await addToSyncQueue("PUT", "/empresa", dados, `Atualizar dados da empresa`);
           await saveEmpresa({ ...dados, id: dados.id || 1 });
           return { ...dados, _offline: true };
@@ -609,7 +666,7 @@ export function createWebApi() {
       try {
         return await request("GET", "/caixas/atual");
       } catch (err) {
-        if (err.message === "OFFLINE" || !navigator.onLine) {
+        if (isOfflineError(err)) {
           return null; // Sem caixa disponível offline
         }
         throw err;
@@ -620,7 +677,7 @@ export function createWebApi() {
       try {
         return await request("POST", "/caixas/abrir", { valor_inicial: valorInicial });
       } catch (err) {
-        if (err.message === "OFFLINE" || !navigator.onLine) {
+        if (isOfflineError(err)) {
           await addToSyncQueue("POST", "/caixas/abrir", { valor_inicial: valorInicial }, `Abrir caixa`);
           return { id: `offline_${Date.now()}`, valor_inicial: valorInicial, _offline: true };
         }
@@ -632,7 +689,7 @@ export function createWebApi() {
       try {
         return await request("POST", "/caixas/reabrir", { id });
       } catch (err) {
-        if (err.message === "OFFLINE" || !navigator.onLine) {
+        if (isOfflineError(err)) {
           await addToSyncQueue("POST", "/caixas/reabrir", { id }, `Reabrir caixa ${id}`);
           return { success: true, _offline: true };
         }
@@ -644,7 +701,7 @@ export function createWebApi() {
       try {
         return await request("POST", "/caixas/fechar", { id, valor_fechamento: valorFechamento, observacoes });
       } catch (err) {
-        if (err.message === "OFFLINE" || !navigator.onLine) {
+        if (isOfflineError(err)) {
           await addToSyncQueue("POST", "/caixas/fechar", { id, valor_fechamento: valorFechamento, observacoes }, `Fechar caixa ${id}`);
           return { success: true, _offline: true };
         }
@@ -656,7 +713,7 @@ export function createWebApi() {
       try {
         return await request("GET", "/caixas/historico");
       } catch (err) {
-        if (err.message === "OFFLINE" || !navigator.onLine) {
+        if (isOfflineError(err)) {
           return [];
         }
         throw err;
@@ -671,7 +728,7 @@ export function createWebApi() {
         await saveFinanceiro(list);
         return list;
       } catch (err) {
-        if (err.message === "OFFLINE" || !navigator.onLine) {
+        if (isOfflineError(err)) {
           return getFinanceiroOffline();
         }
         throw err;
@@ -682,7 +739,7 @@ export function createWebApi() {
       try {
         return await request("POST", "/financeiro", dados);
       } catch (err) {
-        if (err.message === "OFFLINE" || !navigator.onLine) {
+        if (isOfflineError(err)) {
           await addToSyncQueue("POST", "/financeiro", dados, `Lançamento financeiro offline`);
           return { ...dados, id: `offline_${Date.now()}`, _offline: true };
         }
@@ -695,7 +752,7 @@ export function createWebApi() {
       try {
         return await request("GET", "/dashboard/stats");
       } catch (err) {
-        if (err.message === "OFFLINE" || !navigator.onLine) {
+        if (isOfflineError(err)) {
           return getDashboardStatsOffline();
         }
         throw err;
@@ -705,9 +762,11 @@ export function createWebApi() {
     // ===== LICENÇA =====
     async getLicenseStatus() {
       try {
-        return await request("GET", "/license/status");
+        const status = await request("GET", "/license/status");
+        localStorage.setItem("biz_license_cache", JSON.stringify(status));
+        return status;
       } catch (err) {
-        if (err.message === "OFFLINE" || !navigator.onLine) {
+        if (isOfflineError(err)) {
           const cached = localStorage.getItem("biz_license_cache");
           if (cached) {
             return { ...JSON.parse(cached), _offline: true };

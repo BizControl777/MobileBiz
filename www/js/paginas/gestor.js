@@ -1,7 +1,7 @@
 import { fmt, getRandomHour } from "../utils.js";
 import { applyTheme } from "../theme.js";
 import { t, setLanguage, getLanguage } from "../i18n.js";
-import { CATEGORIAS, RESERVAS } from "../data.js";
+import { CATEGORIAS } from "../data.js";
 import { UNIDADES_MEDIDA, TIPOS_PRODUTO, getTipoByUnidade, calcularLucro, safeNum, getExpirationBadge, getExpirationStatus } from "../produtos-calc.js";
 import { openEditStockModal, showModal, closeModal, showNotification, showConfirmModal } from "./helpers.js";
 
@@ -149,18 +149,10 @@ let setProdutosCallback = null;
 let currentVendas = [];
 let setVendasCallback = null;
 let currentUser = null;
-let currentCategorias = [...CATEGORIAS];
+let currentCategorias = CATEGORIAS.map((nome) => ({ id: null, nome }));
 let currentUsuarios = [];
 let currentReservas = [];
 let editingProdutoId = null;
-
-const vendasExemplo = [
-  { vendedor: "Ana Machado", data: "2025-04-02", hora: "09:15", total: 1250.5, lucro: 312.62 },
-  { vendedor: "Pedro Silva", data: "2025-04-03", hora: "10:40", total: 980.0, lucro: 196.0 },
-  { vendedor: "Rita Sousa", data: "2025-04-04", hora: "14:25", total: 1540.75, lucro: 308.15 },
-  { vendedor: "João Almeida", data: "2025-04-05", hora: "11:05", total: 670.0, lucro: 134.0 },
-  { vendedor: "Carla Fernandes", data: "2025-04-06", hora: "16:50", total: 2130.2, lucro: 426.04 },
-];
 
 function parseSaleDate(value) {
   if (!value) return null;
@@ -207,7 +199,7 @@ function normalizeHistoricoRow(venda) {
 }
 
 function getHistoricoRows() {
-  const source = Array.isArray(currentVendas) && currentVendas.length ? currentVendas : vendasExemplo;
+  const source = Array.isArray(currentVendas) ? currentVendas : [];
   return source.map(normalizeHistoricoRow);
 }
 
@@ -279,14 +271,15 @@ async function loadCategorias() {
     if (window.api?.getCategorias) {
       const rows = await window.api.getCategorias();
       if (rows.length) {
-        currentCategorias = rows.map((r) => r.nome);
+        currentCategorias = rows.map((r) => ({ id: r.id, nome: r.nome }));
         return;
       }
     }
   } catch (e) {
     console.warn("Categorias via API indisponíveis, usando lista local.", e);
   }
-  currentCategorias = [...new Set([...CATEGORIAS, ...currentProdutos.map((p) => p.categoria || p.cat).filter(Boolean)])];
+  const nomes = [...new Set([...CATEGORIAS, ...currentProdutos.map((p) => p.categoria || p.cat).filter(Boolean)])];
+  currentCategorias = nomes.map((nome) => ({ id: null, nome }));
 }
 
 function reRenderActiveGestorPage() {
@@ -391,7 +384,12 @@ function initProdutoFormListeners() {
 }
 
 function buildCategoriaOptions() {
-  return currentCategorias.map((c) => `<option value="${escapeAttr(c)}">${escapeHtml(c)}</option>`).join("");
+  return currentCategorias
+    .map((c) => {
+      const val = c.id != null ? String(c.id) : c.nome;
+      return `<option value="${escapeAttr(val)}">${escapeHtml(c.nome)}</option>`;
+    })
+    .join("");
 }
 
 function escapeHtml(s) {
@@ -755,13 +753,16 @@ window.adicionarCategoriaInlineWrapper = async function () {
     return;
   }
   try {
-    if (window.api?.addCategoria) await window.api.addCategoria({ nome });
-    if (!currentCategorias.includes(nome)) currentCategorias.push(nome);
-    currentCategorias.sort((a, b) => a.localeCompare(b, "pt"));
+    let result = null;
+    if (window.api?.addCategoria) result = await window.api.addCategoria({ nome });
+    if (!currentCategorias.some((c) => c.nome === nome)) {
+      currentCategorias.push({ id: result?.id ?? null, nome });
+    }
+    currentCategorias.sort((a, b) => a.nome.localeCompare(b.nome, "pt"));
     const select = document.getElementById("p-cat");
     if (select) {
       select.innerHTML = buildCategoriaOptions();
-      select.value = nome;
+      select.value = result?.id != null ? String(result.id) : nome;
     }
     if (input) input.value = "";
   } catch (err) {
@@ -792,7 +793,15 @@ window.prepararEdicaoProduto = function (id) {
 
   setVal("p-nome", p.nome);
   setVal("p-unidade", p.unidade_medida || "Unidade");
-  setVal("p-cat", p.categoria || p.categoria_id || "");
+  const catNome = p.categoria || p.cat || p.categoria_nome || "";
+  const byId = currentCategorias.find((c) => c.id != null && Number(c.id) === Number(p.categoria_id));
+  const byNome = currentCategorias.find((c) => c.nome === catNome);
+  const catVal = byId
+    ? String(byId.id)
+    : byNome
+      ? (byNome.id != null ? String(byNome.id) : byNome.nome)
+      : catNome;
+  setVal("p-cat", catVal);
   setVal("p-marca", p.marca);
   setVal("p-codigo-barras", p.codigo_barras);
   setVal("p-descricao", p.descricao);

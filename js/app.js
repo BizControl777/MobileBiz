@@ -7,7 +7,7 @@ import * as gestorPages from "./paginas/gestor.js";
 import * as superPages from "./paginas/super.js";
 import * as caixaPages from "./paginas/caixa.js";
 import { initElectronApiBridge, loginWithElectronApi } from "./electron-bridge.js";
-import { initWebApiBridge, createWebApi } from "./web-api-bridge.js";
+import { initWebApiBridge, ensureWebApiReady } from "./web-api-bridge.js";
 import {
   initMobileUI,
   initOfflineIndicator,
@@ -30,12 +30,13 @@ initOfflineIndicator();
 
 // Inicializar Web Bridge se não estiver no Electron
 if (IS_WEB) {
-  initWebApiBridge().then(() => {
-    window.api = createWebApi();
-    console.log("[App] Web API Bridge inicializado.");
-  }).catch(err => {
-    console.error("[App] Erro ao inicializar Web Bridge:", err);
-  });
+  ensureWebApiReady()
+    .then(() => {
+      console.log("[App] Web API Bridge inicializado.");
+    })
+    .catch((err) => {
+      console.error("[App] Erro ao inicializar Web Bridge:", err);
+    });
 }
 
 // Estado global
@@ -168,6 +169,11 @@ export async function doLogin() {
     return;
   }
 
+  // Garantir bridge offline pronta no mobile/web
+  if (IS_WEB) {
+    await ensureWebApiReady();
+  }
+
   // Inicializar bridge correta conforme o ambiente
   if (IS_ELECTRON) {
     initElectronApiBridge();
@@ -291,6 +297,10 @@ export function logout() {
 }
 
 export async function restoreSession() {
+  if (IS_WEB) {
+    await ensureWebApiReady();
+  }
+
   const savedUser = localStorage.getItem("biz_user");
   const savedToken = localStorage.getItem("auth_token");
   

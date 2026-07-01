@@ -206,6 +206,7 @@ try {
 
 // Inicializar banco de dados
 const db = new Database(dbPath);
+db.pragma("foreign_keys = ON");
 console.log("✓ Banco de dados conectado ->", dbPath);
 initDatabase();
 
@@ -495,19 +496,66 @@ function migrateReservasColumns() {
 }
 
 function resolveCategoriaId(categoria_id, empresaId, callback) {
-  if (!categoria_id) return callback(null, null);
-  if (typeof categoria_id === "number" || /^\d+$/.test(String(categoria_id))) {
-    return callback(null, Number(categoria_id));
+  if (categoria_id == null || categoria_id === "") return callback(null, null);
+
+  const empresa = Number(empresaId);
+  if (!empresa || Number.isNaN(empresa)) {
+    return callback(new Error("Empresa não identificada na sessão"));
   }
+
+  const isNumericId =
+    typeof categoria_id === "number" ||
+    (typeof categoria_id === "string" && /^\d+$/.test(categoria_id.trim()));
+
+  if (isNumericId) {
+    const id = Number(categoria_id);
+    try {
+      const row = db
+        .prepare("SELECT id FROM categorias WHERE id = ? AND empresa_id = ? AND ativo = 1")
+        .get(id, empresa);
+      if (row) return callback(null, row.id);
+      return callback(new Error(`Categoria inválida (ID ${id}). Seleccione outra categoria.`));
+    } catch (err) {
+      return callback(err);
+    }
+  }
+
   const nome = String(categoria_id).trim();
+  if (!nome) return callback(null, null);
+
   try {
-    const row = db.prepare("SELECT id FROM categorias WHERE nome = ? AND empresa_id = ?").get(nome, empresaId);
+    const row = db
+      .prepare("SELECT id FROM categorias WHERE nome = ? AND empresa_id = ? AND ativo = 1")
+      .get(nome, empresa);
     if (row) return callback(null, row.id);
-    const info = db.prepare("INSERT INTO categorias (nome, empresa_id) VALUES (?, ?)").run(nome, empresaId);
+    const info = db.prepare("INSERT INTO categorias (nome, empresa_id) VALUES (?, ?)").run(nome, empresa);
     callback(null, info.lastInsertRowid);
   } catch (err) {
     callback(err);
   }
+}
+
+function getEmpresaIdForRequest(req) {
+  const fromToken = Number(req.empresaId);
+  if (fromToken && !Number.isNaN(fromToken)) {
+    const row = db.prepare("SELECT id FROM empresas WHERE id = ? AND ativo = 1").get(fromToken);
+    if (row) return row.id;
+  }
+
+  const userId = req.userId;
+  const email = req.userEmail || "";
+  if (userId != null || email) {
+    const user = db
+      .prepare("SELECT empresa_id FROM usuarios WHERE (id = ? OR email = ?) AND ativo = 1 LIMIT 1")
+      .get(userId, email);
+    if (user?.empresa_id) {
+      const row = db.prepare("SELECT id FROM empresas WHERE id = ? AND ativo = 1").get(user.empresa_id);
+      if (row) return row.id;
+    }
+  }
+
+  const fallback = db.prepare("SELECT id FROM empresas WHERE ativo = 1 ORDER BY id LIMIT 1").get();
+  return fallback?.id || null;
 }
 
 // Inserir dados de demonstração
@@ -578,6 +626,7 @@ function verifyToken(req, res, next) {
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
     req.userId = decoded.userId;
+    req.userEmail = decoded.email;
     req.role = decoded.role;
     req.empresaId = decoded.empresaId;
     next();
@@ -1134,8 +1183,19 @@ app.post("/api/produtos", verifyToken, (req, res) => {
     return res.status(400).json({ message: "Margem negativa bloqueada: preço de venda abaixo do custo" });
   }
 
-  resolveCategoriaId(categoria_id, req.empresaId, (catErr, catId) => {
-    if (catErr) return res.status(500).json({ message: "Erro ao resolver categoria" });
+  const empresaId = getEmpresaIdForRequest(req);
+  if (!empresaId) {
+    return res.status(400).json({ message: "Empresa não encontrada para esta sessão. Faça login novamente." });
+  }
+
+  resolveCategoriaId(categoria_id, empresaId, (catErr, catId) => {
+    if (catErr) {
+      const msg = String(catErr.message || "");
+      if (msg.includes("Categoria inválida") || msg.includes("Empresa não identificada")) {
+        return res.status(400).json({ message: msg });
+      }
+      return res.status(500).json({ message: "Erro ao resolver categoria" });
+    }
 
     const qtdCx = Math.max(1, Number(qtd_por_caixa) || 1);
     const precoCx = Number(preco_venda_caixa) || venda * qtdCx;
@@ -1151,7 +1211,7 @@ app.post("/api/produtos", verifyToken, (req, res) => {
         nome.trim(),
         tipo_produto || "Unidade",
         catId,
-        req.empresaId,
+        empresaId,
         venda,
         custo,
         Number(stock) || 0,
@@ -1175,9 +1235,13 @@ app.post("/api/produtos", verifyToken, (req, res) => {
 app.put("/api/produtos/:id", verifyToken, (req, res) => {
   const { id } = req.params;
   const body = req.body;
+  const empresaId = getEmpresaIdForRequest(req);
+  if (!empresaId) {
+    return res.status(400).json({ message: "Empresa não encontrada para esta sessão. Faça login novamente." });
+  }
 
   try {
-    const produto = db.prepare("SELECT * FROM produtos WHERE id = ? AND empresa_id = ?").get(id, req.empresaId);
+    const produto = db.prepare("SELECT * FROM produtos WHERE id = ? AND empresa_id = ?").get(id, empresaId);
     if (!produto) return res.status(404).json({ message: "Produto não encontrado" });
 
     const applyUpdate = (catId) => {
@@ -1227,14 +1291,20 @@ app.put("/api/produtos/:id", verifyToken, (req, res) => {
         descricao,
         codigo_barras,
         id,
-        req.empresaId,
+        empresaId,
       );
       res.json({ message: "Produto atualizado com sucesso" });
     };
 
     if (body.categoria_id != null) {
-      resolveCategoriaId(body.categoria_id, req.empresaId, (catErr, catId) => {
-        if (catErr) return res.status(500).json({ message: "Erro ao resolver categoria" });
+      resolveCategoriaId(body.categoria_id, empresaId, (catErr, catId) => {
+        if (catErr) {
+          const msg = String(catErr.message || "");
+          if (msg.includes("Categoria inválida") || msg.includes("Empresa não identificada")) {
+            return res.status(400).json({ message: msg });
+          }
+          return res.status(500).json({ message: "Erro ao resolver categoria" });
+        }
         applyUpdate(catId);
       });
     } else {

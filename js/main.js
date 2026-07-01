@@ -1,4 +1,3 @@
-import { PRODUTOS, VENDAS } from "./data.js";
 import { api } from "./api.js";
 import { STATE, setDataCallbacks, navigateTo, PAGES, setInitVendedorCallback, doLogin, logout, restoreSession } from "./app.js";
 import { initCartHelpers, renderCart, setCartState, showNotification } from "./paginas/helpers.js";
@@ -8,14 +7,14 @@ import { initSuperPages } from "./paginas/super.js";
 import { debounce } from "./utils.js";
 
 import { initTheme } from "./theme.js";
-import { getLanguage } from "./i18n.js";
+import { ensureWebApiReady } from "./web-api-bridge.js";
 
 // Inicializar preferências
 initTheme();
 
-// Estado reativo (simplificado)
-let currentProdutos = PRODUTOS;
-let currentVendas = VENDAS;
+// Estado reativo — inicia vazio; dados reais vêm do backend / IndexedDB após login
+let currentProdutos = [];
+let currentVendas = [];
 
 // Wrappers para atualizar estado
 function setProdutos(newProdutos) {
@@ -247,7 +246,11 @@ async function checkLicenseAndInit() {
   const loginScreen = document.getElementById("login-screen");
 
   try {
-    const license = await api.getLicenseStatus();
+    if (!window.electronAPI) {
+      await ensureWebApiReady();
+    }
+    const licenseApi = window.api?.getLicenseStatus ? window.api : api;
+    const license = await licenseApi.getLicenseStatus();
     console.log("Status da licença:", license);
 
     if (!license || license.status === "none" || !license.license_key) {
@@ -274,7 +277,7 @@ async function checkLicenseAndInit() {
     // Tentar validação silenciosa se houver internet
     if (navigator.onLine && license.license_key) {
       try {
-        const res = await api.validateLicense(license.license_key);
+        const res = await licenseApi.validateLicense(license.license_key);
         if (res.status === "blocked") {
            showNotification("Esta licença foi bloqueada.", "error");
            setTimeout(() => window.location.reload(), 2000);

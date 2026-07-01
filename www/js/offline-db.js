@@ -300,22 +300,38 @@ export async function getReservasOffline() {
 // UTILIZADORES
 // =============================================
 
-export async function saveUsuarios(usuarios) {
-  await txClear("usuarios");
-  const deduped = [];
-  const seenIds = new Set();
-  const seenEmails = new Set();
+function dedupeUsuariosByEmail(usuarios) {
+  const map = new Map();
   for (const u of usuarios) {
-    if (!u || u.id == null) continue;
-    const emailKey = String(u.email || "").toLowerCase();
-    if (seenIds.has(u.id) || (emailKey && seenEmails.has(emailKey))) continue;
-    seenIds.add(u.id);
-    if (emailKey) seenEmails.add(emailKey);
-    deduped.push(u);
+    if (!u?.email) continue;
+    const key = String(u.email).toLowerCase().trim();
+    const prev = map.get(key);
+    map.set(key, prev ? { ...prev, ...u } : u);
   }
+  return Array.from(map.values());
+}
+
+export async function saveUsuarios(usuarios) {
+  const deduped = dedupeUsuariosByEmail(Array.isArray(usuarios) ? usuarios : []);
+  await txClear("usuarios");
   for (const u of deduped) {
     await txPut("usuarios", u);
   }
+}
+
+export async function upsertUsuarioOffline(user) {
+  if (!user?.email) return;
+  const usuarios = await getUsuariosOffline();
+  const emailKey = String(user.email).toLowerCase().trim();
+  const idx = usuarios.findIndex(
+    (u) => String(u.email || "").toLowerCase().trim() === emailKey
+  );
+  if (idx >= 0) {
+    usuarios[idx] = { ...usuarios[idx], ...user };
+  } else {
+    usuarios.push(user);
+  }
+  await saveUsuarios(usuarios);
 }
 
 export async function getUsuariosOffline() {
@@ -435,7 +451,7 @@ export async function processSyncQueue(baseURL, token, onProgress = null) {
     await updateSyncItem(item.id, { status: "syncing", attempts: (item.attempts || 0) + 1 });
 
     try {
-      const response = await fetch(`${baseURL}${item.endpoint}`, {
+      const response = await fetch(`${baseURL}/api${item.endpoint}`, {
         method: item.method,
         headers: {
           "Content-Type": "application/json",
